@@ -9,6 +9,7 @@ import os
 import logging
 import re, time
 from logging import info, warning, debug
+import MySQLdb
 
 #logging.basicConfig(level=logging.DEBUG)
 
@@ -16,16 +17,25 @@ from logging import info, warning, debug
 class GerritDataException(Exception):
   pass
 
+class DummyResult:
+  def fetchall(self):
+    return[]
+
+def execute(cursor,sql):
+  return DummyResult()
+  return cursor.execute(sql)
+  pass
+
+def commit(cursor):
+  pass
+
 def main(project):
 
  
-  config = AndroidGerritConfig()
+  config = eval(project + '()')
 
   
-  connStr = ('DRIVER={SQL Server};SERVER=gerrit;DATABASE=Gerrit;UID=user;PWD=user')
-  
-  
-  connection = pyodbc.connect(config.ConnectionString)
+  connection = config.GetConnection()
   cursor = connection.cursor()
   
   createTables(cursor)
@@ -34,7 +44,7 @@ def main(project):
 
   recordedReviews = set()
   sql = "select ReviewId from review"
-  for row in cursor.execute(sql).fetchall():
+  for row in execute(cursor,sql).fetchall():
     recordedReviews.add(row.ReviewId)
 
   print recordedReviews
@@ -90,17 +100,19 @@ def recordReview(cursor, reviewId, gerritMiner):
           print comment
           comment.ExecuteInsert(cursor)
                       
-  cursor.commit() 
+  commit(cursor) 
   return
 
 
 def createTables(cursor, drop = False):
   if drop:
-    cursor.execute("""IF object_id('Review', 'U') is not null
+    print 'droppingi table Review'
+    execute(cursor,"""IF object_id('Review', 'U') is not null
                        DROP TABLE Review""")
-    cursor.commit()
+    commit(cursor)
 
-  cursor.execute("""IF object_id('Review', 'U') is not null
+  print 'adding table Review'
+  execute(cursor,"""IF object_id('Review', 'U') is not null
    PRINT 'TABLE PRESENT'
    ELSE
    CREATE TABLE Review
@@ -118,14 +130,15 @@ def createTables(cursor, drop = False):
       Status nvarchar(20)
     ); """)
 
-  cursor.commit()
+  print 'Commiting...'
+  commit(cursor)
 
   if drop:
-    cursor.execute("""IF object_id('Comment', 'U') is not null
+    execute(cursor,"""IF object_id('Comment', 'U') is not null
                        DROP TABLE Comment""")
-    cursor.commit()
+    commit(cursor)
 
-  cursor.execute("""IF object_id('Comment', 'U') is not null
+  execute(cursor,"""IF object_id('Comment', 'U') is not null
                      PRINT 'TABLE PRESENT'
                      ELSE
                      CREATE TABLE Comment
@@ -140,14 +153,14 @@ def createTables(cursor, drop = False):
 	            LineNumber int,
               Side varchar(10)
           )""")
-  cursor.commit()
+  commit(cursor)
 
   if drop:
-    cursor.execute("""IF object_id('PatchSet', 'U') is not null
+    execute(cursor,"""IF object_id('PatchSet', 'U') is not null
                        DROP TABLE PatchSet""")
-    cursor.commit()
+    commit(cursor)
 
-  cursor.execute("""IF object_id('PatchSet', 'U') is not null
+  execute(cursor,"""IF object_id('PatchSet', 'U') is not null
                      PRINT 'TABLE PRESENT'
                      ELSE
                      CREATE TABLE PatchSet
@@ -159,15 +172,15 @@ def createTables(cursor, drop = False):
               CreatedOn datetime,
               GitRevision varchar(max)
       ) """)
-  cursor.commit()
+  commit(cursor)
   
   
   if drop:
-    cursor.execute("""IF object_id('File', 'U') is not null
+    execute(cursor,"""IF object_id('File', 'U') is not null
                        DROP TABLE PatchSetFile""")
-    cursor.commit()
+    commit(cursor)
 
-  cursor.execute("""IF object_id('PatchSetFile', 'U') is not null
+  execute(cursor,"""IF object_id('PatchSetFile', 'U') is not null
      PRINT 'TABLE PRESENT'
      ELSE
      CREATE TABLE PatchSetFile
@@ -182,14 +195,14 @@ def createTables(cursor, drop = False):
         LinesAdded int,
         LinesDeleted int
       ) """)
-  cursor.commit()
+  commit(cursor)
   
   if drop:
-    cursor.execute("""IF object_id('Person', 'U') is not null
+    execute(cursor,"""IF object_id('Person', 'U') is not null
                        DROP TABLE Person""")
-    cursor.commit()
+    commit(cursor)
 
-  cursor.execute("""IF object_id('Person', 'U') is not null
+  execute(cursor,"""IF object_id('Person', 'U') is not null
                      PRINT 'TABLE PRESENT'
                      ELSE
                      CREATE TABLE Person
@@ -198,14 +211,14 @@ def createTables(cursor, drop = False):
               Name nvarchar(255),
               Email nvarchar(255)
       ) """)
-  cursor.commit()
+  commit(cursor)
   
   if drop:
-    cursor.execute("""IF object_id('Approval', 'U') is not null
+    execute(cursor,"""IF object_id('Approval', 'U') is not null
       DROP TABLE Approval""")
-    cursor.commit()
+    commit(cursor)
 
-  cursor.execute("""IF object_id('Approval', 'U') is not null
+  execute(cursor,"""IF object_id('Approval', 'U') is not null
      PRINT 'TABLE PRESENT'
      ELSE
      CREATE TABLE Approval
@@ -217,13 +230,15 @@ def createTables(cursor, drop = False):
         VerifiedStatus int,
         VerifiedWhen datetime
       )""")
-  cursor.commit()
+  commit(cursor)
   
   return
 
 class GerritConfig:
   def GetHost(self):
     raise Exception("Not implemented")
+  def GetConnection(self):
+    return pyodbc.connect(config.ConnectionString)
 
 class AndroidGerritConfig(GerritConfig):
   def __init__(self):
@@ -240,6 +255,15 @@ class ChromeGerritConfig(GerritConfig):
 
   def GetHost(self):
     return "FILL THIS IN"
+
+class MySQLAndroidGerritConfig(AndroidGerritConfig):
+  def __init__(self):
+    AndroidGerritConfig.__init__(self)
+  def GetConnection(self):
+    return MySQLdb.connect(host='localhost',
+        user='root',
+        passwd='shesuper',
+        db='tester')
 
 
 class GerritMiner:
@@ -431,7 +455,7 @@ class SQLInsertMixin:
     vals = self.GetInsertValues()
     print sql
     print vals
-    return cursor.execute(sql, vals)
+    return execute(cursor,sql, vals)
 
   def FormatType(self, obj):
     # we only have strings, ints, and datetimes...
@@ -532,7 +556,7 @@ class Person(JSONLookup, SQLInsertMixin):
   JSONFieldMapping = {"name": "fullName", "personid":"id/id"}
 
   SQLTableName = "Person"
-  SQLFields = {"Name", "Email", "PersonId"}
+  SQLFields = ["Name", "Email", "PersonId"]
 
   @property
   def Email(self):
@@ -545,7 +569,7 @@ class Person(JSONLookup, SQLInsertMixin):
     sql = "If not exists (select * from Person where PersonId = %d ) begin %s end" % (self.PersonId, self.GetInsertStatement()) 
     print sql
     print vals
-    return cursor.execute(sql, vals)
+    return execute(cursor,sql, vals)
 
   def __repr__(self):
     return "< Person %d >" % self.PersonId
